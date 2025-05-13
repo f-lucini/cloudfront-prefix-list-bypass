@@ -15,12 +15,17 @@ The commands below will guide you through setting up the AWS attacker account wi
 `attacker-cf-distro.yml` accepts the following parameters as input values:
 - **HostHeader**: *website DNS name* expected by the origin
 - **OriginDomain**: *custom DNS record* pointing to the origin
-- **Protocol** (*Optional*): protocol to use to connect to the origin
+- **Protocol** (*Optional*): *protocol* to use to connect to the origin
   - Default: [match-viewer](https://docs.aws.amazon.com/it_it/AWSCloudFormation/latest/UserGuide/aws-properties-cloudfront-distribution-customoriginconfig.html#cfn-cloudfront-distribution-customoriginconfig-originprotocolpolicy)
   - Allowed values:
     - http-only
     - https-only
     - match-viewer
+- **AllowedCIDR** (*Optional*) *CIDR* allowed via AWS WAF to access the distribution.
+    - Default: ""
+
+        **Note**: default empty string will not create the WAF, all access is allowed.
+
 
 Install and configure **AWS CLI** on a Linux environment as prerequisite (launch the following commands with the proper *--profile* if needed) or manually upload the template using **AWS CloudFormation** Console.
 
@@ -36,9 +41,9 @@ Install and configure **AWS CLI** on a Linux environment as prerequisite (launch
     aws cloudformation deploy --template-file attacker-lambda-setup.yml --stack-name sethost-lambda --region us-east-1
     ```
 
-3. Deploy the attacker's distribution, assuming the **$target** variable contains the origin address (see the next paragraph for how to retrieve and reference it). Replace *example.domain* with the DNS name expected by the website.
+3. Deploy the attacker's distribution, assuming the **$target** variable contains the origin address (see the next paragraph for how to retrieve and reference it). Replace *example.domain* with the DNS name expected by the website; in this example, only your IP is allowed to access the distribution (remove *AllowedCIDR* parameter to make it recheable to everyone).
     ```bash
-    aws cloudformation deploy --template-file attacker-cf-distro.yml --stack-name cf-bypass --parameter-overrides HostHeader=example.domain OriginDomain=$target --region us-east-1
+    aws cloudformation deploy --template-file attacker-cf-distro.yml --stack-name cf-bypass --parameter-overrides HostHeader=example.domain OriginDomain=$target AllowedCIDR=$(curl -s http://checkip.amazonaws.com/)/32 --region us-east-1
 
     # Get the distribution address
     aws cloudformation describe-stacks --stack-name cf-bypass --region us-east-1 --query 'Stacks[0].Outputs[0].OutputValue' --output json | sed 's/\"//g'

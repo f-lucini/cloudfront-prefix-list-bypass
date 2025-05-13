@@ -1,8 +1,10 @@
 Parameters:
   HostHeader:
     Type: String
+    Description: 'Website DNS name expected by the origin'
   OriginDomain:
     Type: String
+    Description: 'Custom DNS record pointing to the origin'
   Protocol:
     Type: String
     Default: match-viewer
@@ -10,6 +12,14 @@ Parameters:
       - http-only
       - https-only
       - match-viewer
+    Description: '(Optional) Protocol to use to connect to the origin'
+  AllowedCIDR:
+    Type: String
+    Default: ''
+    Description: '(Optional) CIDR allowed to access CloudFront via AWS WAF.'
+
+Conditions:
+  CreateWAF: !Not [!Equals [!Ref AllowedCIDR, '']]
 
 Resources:
   CloudFrontDistribution:
@@ -81,13 +91,53 @@ Resources:
         Enabled: true
         Aliases: []
         IPV6Enabled: true
-        WebACLId: ''
+        WebACLId: !If 
+          - CreateWAF
+          - !GetAtt WAFWebACL.Arn
+          - !Ref 'AWS::NoValue'
         HttpVersion: http2
         Restrictions:
           GeoRestriction:
             Locations: []
             RestrictionType: none
         CacheBehaviors: []
+
+  WAFIPSet:
+    Type: 'AWS::WAFv2::IPSet'
+    Condition: CreateWAF
+    Properties:
+      Name: !Sub '${AWS::StackName}-allowed-cidr'
+      Description: 'IP Set for allowed CIDR'
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: 
+        - !Ref AllowedCIDR
+
+  WAFWebACL:
+    Type: 'AWS::WAFv2::WebACL'
+    Condition: CreateWAF
+    Properties:
+      Name: !Sub '${AWS::StackName}-waf'
+      Description: 'WebACL to restrict CloudFront access'
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Block: {}
+      Rules:
+        - Name: AllowCIDR
+          Priority: 1
+          Statement:
+            IPSetReferenceStatement:
+              Arn: !GetAtt WAFIPSet.Arn
+          Action:
+            Allow: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AllowCIDRRule
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub '${AWS::StackName}-waf'
 
 Outputs:
   CloudfrontDistributionDomainName:
