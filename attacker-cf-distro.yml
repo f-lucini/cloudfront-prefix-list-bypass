@@ -1,0 +1,95 @@
+Parameters:
+  HostHeader:
+    Type: String
+  OriginDomain:
+    Type: String
+  Protocol:
+    Type: String
+    Default: match-viewer
+    AllowedValues:
+      - http-only
+      - https-only
+      - match-viewer
+
+Resources:
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Ref HostHeader
+        Logging:
+          IncludeCookies: false
+          Bucket: ''
+          Prefix: ''
+        DefaultRootObject: ''
+        Origins:
+          - ConnectionTimeout: 10
+            OriginAccessControlId: ''
+            ConnectionAttempts: 3
+            OriginCustomHeaders:
+              - HeaderName: 'sethost'
+                HeaderValue: !Ref HostHeader
+            DomainName: !Ref OriginDomain
+            OriginShield:
+              Enabled: false
+            OriginPath: ''
+            Id: !Ref OriginDomain
+            CustomOriginConfig:
+              OriginKeepaliveTimeout: 5
+              OriginReadTimeout: 30
+              OriginSSLProtocols:
+                - TLSv1.2
+              HTTPSPort: 443
+              HTTPPort: 80
+              OriginProtocolPolicy: !Ref Protocol
+        PriceClass: PriceClass_100
+        DefaultCacheBehavior:
+          Compress: true
+          ForwardedValues:
+              Cookies:
+                  Forward: all
+              Headers: ["*"]
+              QueryString: True
+          FunctionAssociations: []
+          LambdaFunctionAssociations:
+            - EventType: origin-request
+              IncludeBody: false
+              LambdaFunctionARN: {'Fn::ImportValue': 'sethost-lambda-version-arn' }
+          TargetOriginId: !Ref OriginDomain
+          ViewerProtocolPolicy: allow-all
+          TrustedSigners: []
+          FieldLevelEncryptionId: ''
+          TrustedKeyGroups: []
+          AllowedMethods:
+            - HEAD
+            - DELETE
+            - POST
+            - GET
+            - OPTIONS
+            - PUT
+            - PATCH
+          CachedMethods:
+            - HEAD
+            - GET
+          SmoothStreaming: false
+        Staging: false
+        CustomErrorResponses: []
+        ContinuousDeploymentPolicyId: ''
+        OriginGroups:
+          Quantity: 0
+          Items: []
+        Enabled: true
+        Aliases: []
+        IPV6Enabled: true
+        WebACLId: ''
+        HttpVersion: http2
+        Restrictions:
+          GeoRestriction:
+            Locations: []
+            RestrictionType: none
+        CacheBehaviors: []
+
+Outputs:
+  CloudfrontDistributionDomainName:
+    Description: The Domain Name of the Cloudfront distribution
+    Value: !GetAtt CloudFrontDistribution.DomainName

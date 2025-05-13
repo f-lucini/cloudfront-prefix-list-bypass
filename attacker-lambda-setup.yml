@@ -1,0 +1,92 @@
+Resources:
+  IAMRole00sethostrole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: "Delete"
+    Properties:
+      Path: /service-role/
+      MaxSessionDuration: 3600
+      RoleName: set-host-role
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                  - lambda:EnableReplication*
+                  - lambda:DisableReplication*
+                Resource: !Join [ "", [ "arn:aws:lambda:us-east-1:", !Ref 'AWS::AccountId', ":function:set-host:*" ] ]
+              - Effect: Allow
+                Action:
+                  - iam:CreateServiceLinkedRole
+                Condition:
+                  StringLike:
+                    "iam:AWSServiceName": "replicator.lambda.amazonaws.com"
+                Resource: !Join [ "", [ "arn:aws:iam::", !Ref 'AWS::AccountId', ":role/aws-service-role/replicator.lambda.amazonaws.com/AWSServiceRoleForLambdaReplicator" ] ]
+          PolicyName: edge
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - edgelambda.amazonaws.com
+                - lambda.amazonaws.com
+  
+  LambdaFunction00sethost:
+    Type: AWS::Lambda::Function
+    Properties:
+      MemorySize: 128
+      Description: ''
+      TracingConfig:
+        Mode: PassThrough
+      Timeout: 3
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+      Handler: index.handler
+      Code:
+        ZipFile: |
+            'use strict';
+
+            exports.handler = function (event, context, callback) {
+                var request = event.Records[0].cf.request;
+                request.headers.host[0].value = request.origin.custom.customHeaders['sethost'][0].value;
+                return callback(null, request);
+            };
+      Role: !GetAtt IAMRole00sethostrole.Arn
+      FileSystemConfigs: []
+      FunctionName: set-host
+      Runtime: nodejs20.x
+      PackageType: Zip
+      LoggingConfig:
+        LogFormat: Text
+        LogGroup: /aws/lambda/set-host
+      RecursiveLoop: Terminate
+      EphemeralStorage:
+        Size: 512
+      Architectures:
+        - x86_64
+
+  LambdaPermission00functionsethost:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaVersion00functionsethost
+      Action: lambda:GetFunction
+      Principal: replicator.lambda.amazonaws.com
+
+  LambdaVersion00functionsethost:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref LambdaFunction00sethost
+      Description: ''
+      RuntimePolicy:
+        UpdateRuntimeOn: Auto
+
+Outputs:
+  LambdaExport:
+    Value: !Ref LambdaVersion00functionsethost
+    Export:
+      Name: sethost-lambda-version-arn
