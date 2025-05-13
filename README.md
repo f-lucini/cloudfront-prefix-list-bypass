@@ -87,15 +87,21 @@ To protect against this type of bypass, follow best practices and implement orig
 ## Cleanup
 
 1. Delete Attacker CloudFormation distribution using the chosen **stack-name**.
+
     ```bash
-    aws cloudformation delete-stack --stack-name cf-bypass
+    aws cloudformation delete-stack --stack-name cf-bypass --region us-east-1
     ```
 
-2. [*Optional*] Delete Lambda and IAM Role Infrastructure.
+2. [*Optional*] Delete Lambda and IAM Role Infrastructure if you no longer need it.
+
+    **Note**: The deletion of *edge function replicas* from the previous step [can take few hours](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-edge-delete-replicas.html). You need to wait before running the next command; otherwise, it may not complete successfully and will produce no output. However, you won’t incur any additional costs as long as the Lambda function is not executed.
+
     ```bash
-    aws cloudformation delete-stack --stack-name sethost-lambda
+    # Wait for function replicas deletion or stack will not be removed
+    aws cloudformation delete-stack --stack-name sethost-lambda --region us-east-1
     ```
-3. [*Optional*] If you deployed the test ALB, remember to destroy it.
+3. [*Optional*] If you deployed the test ALB, **remember to destroy it to avoid any additional cost**.
+
     ```bash
-    aws cloudformation delete-stack --stack-name vulnerable-origin
+    aws cloudformation delete-stack --stack-name vulnerable-origin --region us-east-1
     ```
