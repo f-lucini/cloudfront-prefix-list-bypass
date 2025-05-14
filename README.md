@@ -1,31 +1,34 @@
 # CloudFront Prefix List Bypass
 
-A cloud security research tool for demonstrating **CloudFront bypass**, designed to test AWS architectures that rely solely on **managed prefix list** for protection *without* properly implementing [origin cloaking](https://aws.amazon.com/developer/application-security-performance/articles/origin-cloaking).
+A cloud security research tool demonstrating **CloudFront bypass**. It's designed to test AWS architectures that rely solely on **managed prefix list** for protection *without* properly implementing [origin cloaking](https://aws.amazon.com/developer/application-security-performance/articles/origin-cloaking).
 
 ## Overview
 
-**Amazon CloudFront - AWS Content Delivery Network (CDN)** service - is the entry point to web applications, where *security controls* such as **Web Application Firewalls** are usually applied. Some organizations limit access to **public origins** (*e.g.: Application Load Balancers*) using [Amazon Managed Prefix Lists](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/LocationsOfEdgeServers.html#managed-prefix-list) with the assumption that restricting access to CloudFront IPs via *Security Groups* is a sufficient protection.
+**Amazon CloudFront** - AWS Content Delivery Network (CDN) service - serves as entry point to web applications, where *security controls* such as **Web Application Firewalls** are typically implemented. Some organizations restrict access to **public origins** (*e.g.: Application Load Balancers*) using [Amazon Managed Prefix Lists](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/LocationsOfEdgeServers.html#managed-prefix-list), assuming that limiting access to CloudFront IPs via *Security Groups* provides a sufficient protection.
 
-This tool highlights why this approach may be insufficient without additional security measures. **Since CloudFront IP addresses are shared across multiple accounts**, attackers could use their own *Distribution* with a custom DNS record to directly access the origin. By leveraging *Lambda@Edge* to inject the expected **Host header**—matching the target website's virtual host and TLS certificate—they can **bypass CDN-level security controls** (e.g., AWS WAF or geographic restrictions).
+This tool demonstrates why this approach may be insufficient without additional security measures. **Since CloudFront IP addresses are shared across multiple accounts**, attackers could use their own *Distribution* with a custom DNS record to directly access the origin. By leveraging *Lambda@Edge* to inject the expected **Host header**—matching the target website's virtual host and TLS certificate—they can **bypass CDN-level security controls** (e.g., AWS WAF or geographic restrictions).
 
 ## Quick Start
 
-The commands below will guide you through setting up the AWS attacker account with a **Lambda function** that modifies the *host-header*, along with the necessary IAM role and permissions in the **N. Virginia region** as required for [Lambda@Edge](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-at-the-edge.html).  Once configured, you can deploy a CloudFront Distribution for **each target origin** you need to access (using a different *stack name*).
+The commands below will help you set up the AWS attacker account with:
+- A **Lambda** that modifies the *host-header* in the **N. Virginia** region, along with the IAM role and permissions required for [edge functions](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-at-the-edge.html)
+- A CloudFront Distribution **for each target origin** you want to access (using different *stack names*).
+
+### Template Parameters
 
 `attacker-cf-distro.yml` accepts the following parameters as input values:
-- **HostHeader**: *website DNS name* expected by the origin
-- **OriginDomain**: *custom DNS record* pointing to the origin
-- **Protocol** (*Optional*): *protocol* to use to connect to the origin
+- **HostHeader**: The *website DNS name* expected by the origin
+- **OriginDomain**: A *custom DNS record* pointing to the origin
+- **Protocol** (*Optional*): The *protocol* to use for origin connections
   - Default: [match-viewer](https://docs.aws.amazon.com/it_it/AWSCloudFormation/latest/UserGuide/aws-properties-cloudfront-distribution-customoriginconfig.html#cfn-cloudfront-distribution-customoriginconfig-originprotocolpolicy)
   - Allowed values:
     - http-only
     - https-only
     - match-viewer
-- **AllowedCIDR** (*Optional*) *CIDR* allowed via AWS WAF to access the distribution.
-    - Default: ""
+- **AllowedCIDR** (*Optional*): A *CIDR range* allowed via AWS WAF to access the distribution.
+    - Default: "" (empty string = no WAF, all access allowed)
 
-        **Note**: default empty string will not create the WAF, all access is allowed.
-
+### Deployment Steps
 
 Install and configure **AWS CLI** on a Linux environment as prerequisite (launch the following commands with the proper *--profile* if needed) or manually upload the template using **AWS CloudFormation** Console.
 
@@ -36,77 +39,142 @@ Install and configure **AWS CLI** on a Linux environment as prerequisite (launch
     cd cloudfront-prefix-list-bypass
     ```
 
-2. Setup attacker environment (only for the first installation)
+2. Setup Lambda@Edge (first time only)
     ```bash
-    aws cloudformation deploy --template-file attacker-lambda-setup.yml --stack-name sethost-lambda --region us-east-1
+    aws cloudformation deploy \
+        --template-file attacker-lambda-setup.yml \
+        --stack-name sethost-lambda --region us-east-1
     ```
 
-3. Deploy the attacker's distribution, assuming the **$target** variable contains the origin address (see the next paragraph for how to retrieve and reference it). Replace *example.domain* with the DNS name expected by the website; in this example, only your IP is allowed to access the distribution (remove *AllowedCIDR* parameter to make it recheable to everyone).
-    ```bash
-    aws cloudformation deploy --template-file attacker-cf-distro.yml --stack-name cf-bypass --parameter-overrides HostHeader=example.domain OriginDomain=$target AllowedCIDR=$(curl -s http://checkip.amazonaws.com/)/32 --region us-east-1
+3. Deploy the attacker's distribution
 
-    # Get the distribution address
-    aws cloudformation describe-stacks --stack-name cf-bypass --region us-east-1 --query 'Stacks[0].Outputs[0].OutputValue' --output json | sed 's/\"//g'
+    ```bash
+    # Set the required variables
+    header="example.domain" # The DNS name expected by the website
+    target="record.custom" # The origin address (see next section for details)
+
+    # In this example only your IP can access the distribution
+    # remove AllowedCIDR parameter to allow everyone to connect
+    aws cloudformation deploy \
+        --template-file attacker-cf-distro.yml \
+        --stack-name cf-bypass \
+        --parameter-overrides \
+            HostHeader=$header \
+            OriginDomain=$target \
+            AllowedCIDR=$(curl -s http://checkip.amazonaws.com/)/32 \
+        --region us-east-1
+
+    # Get the distribution domain name
+    distribution=$(aws cloudformation describe-stacks \
+        --stack-name cf-bypass \
+        --region us-east-1 \
+        --query 'Stacks[0].Outputs[0].OutputValue' \
+        --output json | sed 's/\"//g')
+
+    echo "Your distribution domain is: $distribution"
     ```
 
-**Use the new distribution to access the origin** and bypass security settings on the original CDN: by default, the *Protocol* (HTTP or HTTPS) used to access the distribution is the same as that used to connect to the origin website. Additionally, due to CloudFront’s certificate validation process for TLS origins—which relies on the Host header—the *OriginDomain* **does not need to match the domain name on the certificate**. This could be useful to target HTTPS since, as explained below, **discovering an origin's IP address could be easier than determining its DNS name** (i.e., EC2 load balancers contain random strings).
+**Use the new distribution to access the origin** and bypass security settings on the original CDN:
+- By default, the *Protocol* (HTTP or HTTPS) used to access the distribution is the same as that used to connect to the origin website. 
+- Due to CloudFront’s certificate validation process for TLS origins—which relies on the Host header—the *OriginDomain* **does not need to match the domain name on the certificate**.
+- This could be useful to target HTTPS since **discovering an origin's IP address could be easier than determining its DNS name** (i.e., EC2 load balancers contain random strings).
 
 ## Technical Details
 
 ### Find Origin Address
 
-The techniques used to uncover the origin server address, as described in this section, are based on the methods detailed in  [this article](https://infosecwriteups.com/finding-the-origin-ip-behind-cdns-37cd18d5275).
+The techniques described in this section for uncovering the origin server address are based on methods detailed in [this article](https://infosecwriteups.com/finding-the-origin-ip-behind-cdns-37cd18d5275).
 
-Tools like [CloakQuest3r](https://github.com/spyboy-productions/CloakQuest3r) or [SecurityTrails](https://securitytrails.com/), perform **subdomain scanning** to find misconfigured old records, or retrieve **DNS historical values** used before CDN deployment. Other services, such as [Censys](https://search.censys.io/), continually scan the entire public internet address space to **match IP using the same SSL certificate**: this data is used by the [CloudFlair](https://github.com/christophetd/CloudFlair) tool to **exclude Cloudfront IPs**, if the origin was scanned before the managed prefix list was applied. Similar techniques, like [Shodan favicon map](https://faviconmap.shodan.io), match websites with the same icon. For public Wordpress instances, the [pingback](https://www.invicti.com/blog/web-security/xml-rpc-protocol-ip-disclosure-attacks/) feature can be used to **log the origin**: however, using a private EC2 intance, would only expose the egress NAT IP.
+Several tools and techniques can be used:
+- Tools like [CloakQuest3r](https://github.com/spyboy-productions/CloakQuest3r) or [SecurityTrails](https://securitytrails.com/) can:
+  - Find misconfigured old records using **Subdomain scanning**
+  - Retrieve **DNS historical values** from before CDN deployment
+- Services like [Censys](https://search.censys.io/) and [CloudFlair](https://github.com/christophetd/CloudFlair) can be used to*:
+  - **Scan the entire public internet** address space
+  - Match IPs using **identical SSL certificates**
+  - Identify origins by **excluding CloudFront IPs**
+  
+- Other techniques include:
+  - [Shodan favicon map](https://faviconmap.shodan.io) for matching websites with **identical icons***
+  - [WordPress pingback](https://www.invicti.com/blog/web-security/xml-rpc-protocol-ip-disclosure-attacks/) feature to log origin for **public EC2** instances
+
+**assuming the origin was scanned before CloudFront prefix-list is applied*
 
 ### Reference Origin IP
 
-Once found the origin IP address using one of the techniques above or additional architectural information leaks, a new CloudFront Distribution requires an **origin domain name** that must be *unique*. You can try **reversing lookup** the IP using `dig -x`, the standard [DNS string for EC2](https://www.reddit.com/r/aws/comments/6bple0/comment/dhokpps/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button) origins or alternatively register a record on a custom domain (tools like [no-ip](https://my.noip.com/dynamic-dns) allows one subdomain for free).
+After discovering the origin IP address, you'll need to reference it in your CloudFront Distribution. Since the **origin domain name** must be unique, you have several options:
 
-**Note:** Using an **HTTPS origin** you would expect a *certificate error* in the comunication between the attacker distribution and the origin since the certificate does not match the specified domain name. **However, Cloudfront will accept it, because the certificate includes [the correct host header](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-https-cloudfront-to-custom-origin.html#using-https-cloudfront-to-origin-certificate)**. Futhermore, according to AWS documentation, Host header is *read-only* in CloudFront **viewer request**, but not in the [origin request](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html#function-restrictions-read-only-headers).
+1. Use DNS reverse lookup: `dig -x <IP>`
+2. Use the standard [DNS string for EC2](https://www.reddit.com/r/aws/comments/6bple0/comment/dhokpps/) origins
+3. Register a record on a custom domain (e.g., [no-ip](https://my.noip.com/dynamic-dns) offers one free subdomain)
 
-This repository includes an **example of vulnerable ALB origin**, which you can *optionally* use to test the tool. The *ALB Listener* blocks all requests where the host header is not *example.domain* and only allows CloudFront prefix-list (for *N. Viriginia* region) via its security group rules.
-```bash
-# Deploy an example of vulnerable ALB origin
-aws cloudformation deploy --template-file vulnerable-origin-example.yml --stack-name vulnerable-origin --region us-east-1
-
-# Get the balancer DNS name
-origin_dns=$(aws cloudformation describe-stacks --stack-name vulnerable-origin --region us-east-1 --query 'Stacks[0].Outputs[0].OutputValue' --output json | sed 's/\"//g')
-
-# Simulate IP discovery using DNS resolution
-origin_ip=$(echo $origin_dns | xargs -l dig +short | tail -1)
-
-# Reverse the IP assuming us-east-1 region
-target=$(echo ec2-$origin_ip | tr . - | xargs -I % -n 1 echo %.compute-1.amazonaws.com)
-```
-
-Deploy the attacker distribution as explained in the *Quick Start* to access the target using HTTP protocol; alternatively, you can test HTTPS behaviour by using the IP address of any public website.
+>**Note:**
+>When using an **HTTPS origin**, you might expect certificate validation errors since the certificate won't match the specified domain name. However, **CloudFront accepts the connection** because it validates using [the Host header](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-https-cloudfront-to-custom-origin.html#using-https-cloudfront-to-origin-certificate). While the Host header is *read-only* in CloudFront's **viewer request**, it can be modified in the [origin request](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html#function-restrictions-read-only-headers)
 
 ### Prevention Guidelines
-To protect against this type of bypass, follow best practices and implement origin cloaking effectively by:
+To protect against this bypass technique, implement origin cloaking effectively using:
 
-- Using [VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html) to ensure  resources are not accessible over the internet
+- [VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html) to prevent public access over the internet
 
-- Restricting access to public origins like ALBs by validating a [custom header](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/restrict-access-to-load-balancer.html)
+- [Custom header validation](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/restrict-access-to-load-balancer.html) for public origins like ALBs
+
+## Origin Example
+
+This repository includes an **example of a vulnerable Application Load Balancer (ALB)** for testing purposes. The ALB is configured with these security controls:
+- A listener that blocks requests unless the host header is *example.domain*
+- Security group rules that only allow traffic from CloudFront's prefix list (for N. Virginia region)
+
+
+```bash
+# Deploy the vulnerable ALB
+aws cloudformation deploy \
+    --template-file vulnerable-origin-example.yml \
+    --stack-name vulnerable-origin \
+    --region us-east-1
+
+# Get the ALB's DNS name
+origin_dns=$(aws cloudformation describe-stacks \
+    --stack-name vulnerable-origin \
+    --region us-east-1 \
+    --query 'Stacks[0].Outputs[0].OutputValue' \
+    --output json | sed 's/\"//g')
+
+# Simulate origin discovery through DNS resolution
+origin_ip=$(echo $origin_dns | xargs -l dig +short | tail -1)
+
+# Generate EC2 DNS name for us-east-1 region
+target=$(echo ec2-$origin_ip | tr . - | xargs -I % echo %.compute-1.amazonaws.com)
+
+# Set the host header to the required value
+header="example.com"
+```
+
+Deploy the attacker distribution as described in the *Quick Start* section and connect to it using HTTP. To test HTTPS behaviour, you can use any public website's IP address, for example:
+```bash
+header="www.google.com"
+ip=$(dig +short $header | tail -1)
+target=$(dig -x $ip +short | tail -1 | sed 's/\.$//')
+```
 
 ## Cleanup
 
-1. Delete Attacker CloudFormation distribution using the chosen **stack-name**.
+1. Remove the attacker's CloudFront distribution using the chosen **stack-name**.
 
     ```bash
     aws cloudformation delete-stack --stack-name cf-bypass --region us-east-1
     ```
 
-2. [*Optional*] Delete Lambda and IAM Role Infrastructure if you no longer need it.
+2. If you deployed the test ALB, remove it to avoid ongoing costs:
 
-    **Note**: The deletion of *edge function replicas* from the previous step [can take few hours](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-edge-delete-replicas.html). You need to wait before running the next command; otherwise, it may not complete successfully and will produce no output. However, you won’t incur any additional costs as long as the Lambda function is not executed.
+    ```bash
+    aws cloudformation delete-stack --stack-name vulnerable-origin --region us-east-1
+    ```
+
+3. (*Optional*) Clean up the Lambda@Edge infrastructure if you no longer need it.
+
+    **Note**: CloudFront needs several hours to [delete edge function replicas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-edge-delete-replicas.html). Wait before running this command, or it may fail silently (you won't incur costs if lambda is not executed.)
 
     ```bash
     # Wait for function replicas deletion or stack will not be removed
     aws cloudformation delete-stack --stack-name sethost-lambda --region us-east-1
-    ```
-3. [*Optional*] If you deployed the test ALB, **remember to destroy it to avoid any additional cost**.
-
-    ```bash
-    aws cloudformation delete-stack --stack-name vulnerable-origin --region us-east-1
     ```
