@@ -1,5 +1,4 @@
 from manim import *
-from PIL import Image
 from moviepy import VideoFileClip
 
 class Cloudfront(Scene):
@@ -51,4 +50,3 @@ if __name__ == '__main__':
     scene.render()
     videoClip = VideoFileClip(scene.renderer.file_writer.movie_file_path)
     videoClip.write_gif("cf-bypass.gif",fps=25,loop=1)
-    
