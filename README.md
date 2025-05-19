@@ -8,11 +8,13 @@ A cloud security research tool demonstrating **CloudFront bypass**. It's designe
 
 This tool demonstrates why this approach may be insufficient without additional security measures. **Since CloudFront IP addresses are shared across multiple accounts**, attackers could use their own *Distribution* with a custom DNS record to directly access the origin. By leveraging *Lambda@Edge* to inject the expected **Host header**—matching the target website's virtual host and TLS certificate—they can **bypass CDN-level security controls** (e.g., AWS WAF or geographic restrictions).
 
+![CloudFront Animation](cf-bypass.gif)
+
 ## Quick Start
 
 The commands below will help you set up the AWS attacker account with:
 - A **Lambda** that modifies the *host-header* in the **N. Virginia** region, along with the IAM role and permissions required for [edge functions](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-at-the-edge.html)
-- A CloudFront Distribution **for each target origin** you want to access (using different *stack names*).
+- A CloudFront Distribution to deploy **for each target origin** you want to access (using different *stack names*).
 
 ### Template Parameters
 
@@ -26,7 +28,7 @@ The commands below will help you set up the AWS attacker account with:
     - https-only
     - match-viewer
 - **AllowedCIDR** (*Optional*): A *CIDR range* allowed via AWS WAF to access the distribution.
-    - Default: "" (empty string = no WAF, all access allowed)
+    - Default: "" (all access allowed, no WAF is deployed)
 
 ### Deployment Steps
 
@@ -54,7 +56,7 @@ Install and configure **AWS CLI** on a Linux environment as prerequisite (launch
     target="record.custom" # The origin address (see next section for details)
 
     # In this example only your IP can access the distribution
-    # remove AllowedCIDR parameter to allow everyone to connect
+    # (remove AllowedCIDR parameter to allow everyone to connect)
     aws cloudformation deploy \
         --template-file attacker-cf-distro.yml \
         --stack-name cf-bypass \
@@ -75,9 +77,9 @@ Install and configure **AWS CLI** on a Linux environment as prerequisite (launch
     ```
 
 **Use the new distribution to access the origin** and bypass security settings on the original CDN:
-- By default, the *Protocol* (HTTP or HTTPS) used to access the distribution is the same as that used to connect to the origin website. 
+- By default, the *Protocol* (HTTP or HTTPS) used to access the distribution is **the same as that used to connect to the origin** website. 
 - Due to CloudFront’s certificate validation process for TLS origins—which relies on the Host header—the *OriginDomain* **does not need to match the domain name on the certificate**.
-- This could be useful to target HTTPS since **discovering an origin's IP address could be easier than determining its DNS name** (i.e., EC2 load balancers contain random strings).
+- This could be useful to target HTTPS since **discovering an origin's IP address could be easier than finding its DNS name** (i.e., EC2 load balancers contain random strings).
 
 ## Technical Details
 
@@ -102,14 +104,14 @@ Several tools and techniques can be used:
 
 ### Reference Origin IP
 
-After discovering the origin IP address, you'll need to reference it in your CloudFront Distribution. Since the **origin domain name** must be unique, you have several options:
+After discovering the origin IP address, CloudFront will require to reference an **origin domain name**:
 
 1. Use DNS reverse lookup: `dig -x <IP>`
 2. Use the standard [DNS string for EC2](https://www.reddit.com/r/aws/comments/6bple0/comment/dhokpps/) origins
 3. Register a record on a custom domain (e.g., [no-ip](https://my.noip.com/dynamic-dns) offers one free subdomain)
 
 >**Note:**
->When using an **HTTPS origin**, you might expect certificate validation errors since the certificate won't match the specified domain name. However, **CloudFront accepts the connection** because it validates using [the Host header](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-https-cloudfront-to-custom-origin.html#using-https-cloudfront-to-origin-certificate). While the Host header is *read-only* in CloudFront's **viewer request**, it can be modified in the [origin request](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html#function-restrictions-read-only-headers)
+>When using an **HTTPS origin**, you might expect certificate validation errors since the certificate won't match the specified domain name. However, **CloudFront accepts the connection** because it validates using the [Host header](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-https-cloudfront-to-custom-origin.html#using-https-cloudfront-to-origin-certificate). While the Host header is *read-only* in CloudFront's **viewer request**, it can be modified in the [origin request](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html#function-restrictions-read-only-headers)
 
 ### Prevention Guidelines
 To protect against this bypass technique, implement origin cloaking effectively using:
@@ -123,7 +125,6 @@ To protect against this bypass technique, implement origin cloaking effectively 
 This repository includes an **example of a vulnerable Application Load Balancer (ALB)** for testing purposes. The ALB is configured with these security controls:
 - A listener that blocks requests unless the host header is *example.domain*
 - Security group rules that only allow traffic from CloudFront's prefix list (for N. Virginia region)
-
 
 ```bash
 # Deploy the vulnerable ALB
@@ -149,7 +150,9 @@ target=$(echo ec2-$origin_ip | tr . - | xargs -I % echo %.compute-1.amazonaws.co
 header="example.com"
 ```
 
-Deploy the attacker distribution as described in the *Quick Start* section and connect to it using HTTP. To test HTTPS behaviour, you can use any public website's IP address, for example:
+Deploy the attacker distribution as described in the *Quick Start* section and **connect to it using HTTP**.
+
+To test instead the *HTTPS behaviour*, you can use any public website's IP address, for example:
 ```bash
 header="www.google.com"
 ip=$(dig +short $header | tail -1)
@@ -172,7 +175,7 @@ target=$(dig -x $ip +short | tail -1 | sed 's/\.$//')
 
 3. (*Optional*) Clean up the Lambda@Edge infrastructure if you no longer need it.
 
-    **Note**: CloudFront needs several hours to [delete edge function replicas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-edge-delete-replicas.html). Wait before running this command, or it may fail silently (you won't incur costs if lambda is not executed.)
+    **Note**: CloudFront needs several hours to [delete edge function replicas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-edge-delete-replicas.html) of step 1. Wait before running this command, or it may fail silently (but you won't incur costs if the lambda is not executed).
 
     ```bash
     # Wait for function replicas deletion or stack will not be removed
