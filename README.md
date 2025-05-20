@@ -147,7 +147,7 @@ origin_ip=$(echo $origin_dns | xargs -l dig +short | tail -1)
 target=$(echo ec2-$origin_ip | tr . - | xargs -I % echo %.compute-1.amazonaws.com)
 
 # Set the host header to the required value
-header="example.origin"
+header="example.domain"
 ```
 
 Deploy the attacker distribution as described in the *Quick Start* section and **connect to it using HTTP**.
