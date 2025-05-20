@@ -29,7 +29,7 @@ class Cloudfront(Scene):
         sg_box2.shift(3*RIGHT)
         lambda_icon = ImageMobject("icons/Lambda.png").scale(0.2).to_edge(LEFT*3, buff=1.5)
         lambda_text = Paragraph('Lambda\n@Edge', color='#ED7100', font='Verdana', font_size=18).next_to(lambda_icon, RIGHT, buff=0.2)
-        host_text = Paragraph('Host\nHeader', color='#747474', font='Verdana', font_size=18, alignment="center", weight=BOLD).next_to(lambda_icon, DR)#, buff=1
+        host_text = Paragraph('Host\nHeader', color='#747474', font='Verdana', font_size=18, alignment="center", weight=BOLD).next_to(lambda_icon, DR)
 
         self.play(MoveToTarget(group), run_time=0.75)
         self.play(FadeOut(sg_text), Transform(sg_box, sg_box2), run_time=0.5)

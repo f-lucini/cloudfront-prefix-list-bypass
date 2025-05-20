@@ -6,7 +6,7 @@ A cloud security research tool demonstrating **CloudFront bypass**. It's designe
 
 **Amazon CloudFront** - AWS Content Delivery Network (CDN) service - serves as entry point to web applications, where *security controls* such as **Web Application Firewalls** are typically implemented. Some organizations restrict access to **public origins** (*e.g.: Application Load Balancers*) using [Amazon Managed Prefix Lists](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/LocationsOfEdgeServers.html#managed-prefix-list), assuming that limiting access to CloudFront IPs via *Security Groups* provides a sufficient protection.
 
-This tool demonstrates why this approach may be insufficient without additional security measures. **Since CloudFront IP addresses are shared across multiple accounts**, attackers could use their own *Distribution* with a custom DNS record to directly access the origin. By leveraging *Lambda@Edge* to inject the expected **Host header**—matching the target website's virtual host and TLS certificate—they can **bypass CDN-level security controls** (e.g., AWS WAF or geographic restrictions).
+This tool demonstrates why this approach may be insufficient without additional security measures. **Since CloudFront IP addresses are shared across all AWS accounts**, attackers could use their own *Distribution* with a custom DNS record to directly access the origin. By leveraging *Lambda@Edge* to inject the expected **Host header**—matching the target website's virtual host and TLS certificate—they can **bypass CDN-level security controls** (e.g., AWS WAF or geographic restrictions).
 
 ![CloudFront Animation](cf-bypass.gif)
 
@@ -102,9 +102,9 @@ Several tools and techniques can be used:
 
 **assuming the origin was scanned before CloudFront prefix-list is applied*
 
-### Reference Origin IP
+### Using Origin IP
 
-After discovering the origin IP address, CloudFront will require to reference an **origin domain name**:
+After discovering the origin IP address, CloudFront will require an **origin domain name**. Here are a few ways to get one:
 
 1. Use DNS reverse lookup: `dig -x <IP>`
 2. Use the standard [DNS string for EC2](https://www.reddit.com/r/aws/comments/6bple0/comment/dhokpps/) origins
