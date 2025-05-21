@@ -2,6 +2,9 @@
 
 A cloud security research tool demonstrating **CloudFront bypass**. It's designed to test AWS architectures that rely solely on **managed prefix list** for protection *without* properly implementing [origin cloaking](https://aws.amazon.com/developer/application-security-performance/articles/origin-cloaking).
 
+>**Update:**
+>After sharing this, I discovered that the same technique had already been documented and previously implemented at https://github.com/RyanJarv/cdn-proxy
+
 ## Overview
 
 **Amazon CloudFront** - AWS Content Delivery Network (CDN) service - serves as entry point to web applications, where *security controls* such as **Web Application Firewalls** are typically implemented. Some organizations restrict access to **public origins** (*e.g.: Application Load Balancers*) using [Amazon Managed Prefix Lists](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/LocationsOfEdgeServers.html#managed-prefix-list), assuming that limiting access to CloudFront IPs via *Security Groups* provides a sufficient protection.
